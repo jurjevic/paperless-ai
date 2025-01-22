@@ -10,7 +10,7 @@ class OllamaService {
         this.apiUrl = config.ollama.apiUrl;
         this.model = config.ollama.model;
         this.client = axios.create({
-            timeout: 1200000 // 10 minutes timeout
+            timeout: 9000000 // 150 minutes timeout
         });
     }
 
@@ -26,7 +26,7 @@ class OllamaService {
                 await fs.access(cachePath);
                 console.log('[DEBUG] Thumbnail already cached');
             } catch (err) {
-                console.log('Thumbnail not cached, fetching from Paperless');  
+                console.log('Thumbnail not cached, fetching from Paperless');
                 const thumbnailData = await paperlessService.getThumbnailImage(id);
             if (!thumbnailData) {
                 console.warn('Thumbnail nicht gefunden');
@@ -35,7 +35,7 @@ class OllamaService {
                 await fs.writeFile(cachePath, thumbnailData);
             }
 
-            
+
             const getAvailableMemory = async () => {
                 const totalMemory = os.totalmem();
                 const freeMemory = os.freemem();
@@ -43,28 +43,28 @@ class OllamaService {
                 const freeMemoryMB = (freeMemory / (1024 * 1024)).toFixed(0);
                 return { totalMemoryMB, freeMemoryMB };
             };
-            
+
             const calculateNumCtx = (promptTokenCount, expectedResponseTokens) => {
                 const totalTokenUsage = promptTokenCount + expectedResponseTokens;
                 const maxCtxLimit = 128000;
-                
+
                 const numCtx = Math.min(totalTokenUsage, maxCtxLimit);
-                
+
                 console.log('Prompt Token Count:', promptTokenCount);
                 console.log('Expected Response Tokens:', expectedResponseTokens);
                 console.log('Dynamic calculated num_ctx:', numCtx);
-                
+
                 return numCtx;
             };
-            
+
             const calculatePromptTokenCount = (prompt) => {
                 return Math.ceil(prompt.length / 4);
             };
-            
+
             const { freeMemoryMB } = await getAvailableMemory();
             const expectedResponseTokens = 1024;
             const promptTokenCount = calculatePromptTokenCount(prompt);
-            
+
             const numCtx = calculateNumCtx(promptTokenCount, expectedResponseTokens);
             const response = await this.client.post(`${this.apiUrl}/api/generate`, {
                 model: this.model,
@@ -84,12 +84,13 @@ class OllamaService {
                     `,
                     stream: false,
                     options: {
-                        temperature: 0.7, 
+                        temperature: 0.7,
                         top_p: 0.9,
                         repeat_penalty: 1.1,
                         top_k: 7,
                         num_predict: 256,
-                        num_ctx: numCtx 
+                        num_ctx: numCtx,
+                        num_thread: 14
                     }
                     //   options: {
                         //     temperature: 0.3,        // Moderately low for balance between consistency and creativity
@@ -100,17 +101,17 @@ class OllamaService {
                         //     num_ctx: 2048           // Reduced context window for more stable processing
                         // }
                     });
-                    
+
                     if (!response.data || !response.data.response) {
                         throw new Error('Invalid response from Ollama API');
                     }
-                    
+
                     const parsedResponse = this._parseResponse(response.data.response);
                     //console.log('Ollama response:', parsedResponse);
                     if(parsedResponse.tags.length === 0 && parsedResponse.correspondent === null) {
                         console.warn('No tags or correspondent found in response from Ollama for Document.\nPlease review your prompt or switch to OpenAI for better results.',);
                     }
-                    
+
                     await this.writePromptToFile(prompt + "\n\n" + JSON.stringify(parsedResponse));
                     // Match the OpenAI service response structure
                     return {
@@ -122,7 +123,7 @@ class OllamaService {
                         },
                         truncated: false
                     };
-                    
+
                 } catch (error) {
                     console.error('Error analyzing document with Ollama:', error);
                     return {
@@ -132,12 +133,12 @@ class OllamaService {
             };
         }
     }
-    
-    
+
+
     async writePromptToFile(systemPrompt) {
         const filePath = './logs/prompt.txt';
         const maxSize = 10 * 1024 * 1024;
-      
+
         try {
           const stats = await fs.stat(filePath);
           if (stats.size > maxSize) {
@@ -148,7 +149,7 @@ class OllamaService {
             console.warn('[WARNING] Error checking file size:', error);
           }
         }
-      
+
         try {
           await fs.appendFile(filePath, '================================================================================' + systemPrompt + '\n\n' + '================================================================================\n\n');
         } catch (error) {
@@ -166,30 +167,30 @@ class OllamaService {
                 const freeMemoryMB = (freeMemory / (1024 * 1024)).toFixed(0);
                 return { totalMemoryMB, freeMemoryMB };
             };
-            
+
             const calculateNumCtx = (promptTokenCount, expectedResponseTokens) => {
                 const totalTokenUsage = promptTokenCount + expectedResponseTokens;
                 const maxCtxLimit = 128000;
-                
+
                 const numCtx = Math.min(totalTokenUsage, maxCtxLimit);
-                
+
                 console.log('Prompt Token Count:', promptTokenCount);
                 console.log('Expected Response Tokens:', expectedResponseTokens);
                 console.log('Dynamic calculated num_ctx:', numCtx);
-                
+
                 return numCtx;
             };
-            
+
             const calculatePromptTokenCount = (prompt) => {
                 return Math.ceil(prompt.length / 4);
             };
-            
+
             const { freeMemoryMB } = await getAvailableMemory();
             const expectedResponseTokens = 1024;
             const promptTokenCount = calculatePromptTokenCount(prompt);
-            
+
             const numCtx = calculateNumCtx(promptTokenCount, expectedResponseTokens);
-          
+
             const response = await this.client.post(`${this.apiUrl}/api/generate`, {
                 model: this.model,
                 prompt: prompt + "\n\n" + JSON.stringify(content),
@@ -208,7 +209,7 @@ class OllamaService {
                 `,
                 stream: false,
                 options: {
-                  temperature: 0.7, 
+                  temperature: 0.7,
                   top_p: 0.9,
                   repeat_penalty: 1.1,
                   top_k: 7,
@@ -259,19 +260,19 @@ class OllamaService {
     _buildPrompt(content, existingTags = [], existingCorrespondent = []) {
         let systemPrompt;
         let promptTags = '';
-    
+
         // Validate that existingCorrespondent is an array and handle if it's not
-        const correspondentList = Array.isArray(existingCorrespondent) 
-            ? existingCorrespondent 
+        const correspondentList = Array.isArray(existingCorrespondent)
+            ? existingCorrespondent
             : [];
-    
+
         if (process.env.USE_PROMPT_TAGS === 'yes') {
             promptTags = process.env.PROMPT_TAGS;
             systemPrompt = config.specialPromptPreDefinedTags;
         } else {
             systemPrompt = process.env.SYSTEM_PROMPT + '\n\n' + config.mustHavePrompt;
         }
-    
+
         // Format existing tags
         const existingTagsList = Array.isArray(existingTags)
             ? existingTags
@@ -279,7 +280,7 @@ class OllamaService {
                 .map(tag => tag.name)
                 .join(', ')
             : '';
-    
+
         // Format existing correspondents - handle both array of objects and array of strings
         const existingCorrespondentList = correspondentList
             .filter(Boolean)  // Remove any null/undefined entries
@@ -289,7 +290,7 @@ class OllamaService {
             })
             .filter(name => name.length > 0)  // Remove empty strings
             .join(', ');
-    
+
         if(process.env.USE_EXISTING_DATA === 'yes') {
             return `${systemPrompt}
             Existing tags: ${existingTagsList}\n
@@ -312,14 +313,14 @@ class OllamaService {
               //console.warn('No JSON found in response:', response);
               return { tags: [], correspondent: null };
           }
-  
+
           let jsonStr = jsonMatch[0];
           console.log('Extracted JSON String:', jsonStr);
-  
+
           try {
               // Attempt to parse the JSON
               const result = JSON.parse(jsonStr);
-  
+
               // Validate and return the result
               return {
                   tags: Array.isArray(result.tags) ? result.tags : [],
@@ -328,17 +329,17 @@ class OllamaService {
                   document_date: result.document_date || null,
                   language: result.language || null
               };
-  
+
           } catch (errorx) {
               console.warn('Error parsing JSON from response:', errorx.message);
               console.warn('Attempting to sanitize the JSON...');
-  
+
               // Optionally sanitize the JSON here
               jsonStr = jsonStr
                   .replace(/,\s*}/g, '}') // Remove trailing commas before closing braces
                   .replace(/,\s*]/g, ']') // Remove trailing commas before closing brackets
                   .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":'); // Ensure property names are quoted
-  
+
               try {
                   const sanitizedResult = JSON.parse(jsonStr);
                   return {
